@@ -12,20 +12,48 @@ if TYPE_CHECKING:
     from .ble_client import PetkitFountainData
 
 
-def build_time_sync_payload() -> list[int]:
+def normalize_secret(secret: bytes | None) -> bytes:
+    """Return the 8-byte secret CMD 86 expects.
+
+    The PetKit cloud hands out a 6-byte secret for fountains (12 hex chars);
+    the device compares it left-padded with zeros to 8 bytes. Confirmed on a
+    CTW3 (firmware 111) bound to the PetKit app. ``None`` is the all-zero
+    secret an uninitialised device accepts.
+    """
+    if not secret:
+        return bytes(8)
+    return bytes(secret[-8:]).rjust(8, b"\x00")
+
+
+def parse_secret_hex(value: str) -> bytes:
+    """Parse a user- or cloud-supplied secret (1..8 bytes of hex) to 8 bytes.
+
+    Raises ``ValueError`` when the text is not hex or is too long.
+    """
+    cleaned = value.strip().replace(":", "").replace(" ", "")
+    raw = bytes.fromhex(cleaned)
+    if not 1 <= len(raw) <= 8:
+        raise ValueError("secret must be 1 to 8 bytes")
+    return normalize_secret(raw)
+
+
+def build_time_sync_payload(utc_offset_hours: int | None = None) -> list[int]:
     """Build the 6-byte payload for CMD 84 (set device time).
 
-    Layout: [0, sec>>24, sec>>16, sec>>8, sec, 13]
-    where sec = seconds since the Petkit epoch (2000-01-01 UTC).
+    Layout: [0, sec>>24, sec>>16, sec>>8, sec, tz]
+    where sec = seconds since the Petkit epoch (2000-01-01 UTC) and
+    tz = UTC offset in hours + 12. ``None`` keeps the historical constant 13
+    (UTC+1) for callers that do not know the local offset.
     """
     sec = int(time.time()) - PETKIT_EPOCH_OFFSET
+    tz = 13 if utc_offset_hours is None else max(0, min(26, utc_offset_hours + 12))
     return [
         0,
         (sec >> 24) & 0xFF,
         (sec >> 16) & 0xFF,
         (sec >> 8) & 0xFF,
         sec & 0xFF,
-        13,
+        tz,
     ]
 
 
@@ -47,8 +75,7 @@ def build_init_payload(device_id: int, secret: bytes) -> list[int]:
     Layout: 8-byte device_id (big-endian unsigned) + 8-byte secret.
     """
     id_bytes = list(struct.pack(">Q", device_id))
-    padded_secret = list(secret[:8].ljust(8, b"\x00"))
-    return id_bytes + padded_secret
+    return id_bytes + list(normalize_secret(secret))
 
 
 def build_full_settings_payload(data: PetkitFountainData, **overrides: int) -> list[int] | None:

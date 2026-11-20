@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     ENTITY_ID_FORMAT,
@@ -38,7 +39,7 @@ _LOGGER = logging.getLogger(__name__)
 class PetkitSensorEntityDescription(SensorEntityDescription):
     """Sensor description with value extractor and optional availability check."""
 
-    value_fn: Callable[[PetkitFountainData], float | int | str | None]
+    value_fn: Callable[[PetkitFountainData], float | int | str | datetime | None]
     supported_fn: Callable[[PetkitFountainData], bool] = lambda _: True
     available_fn: Callable[[PetkitFountainData], bool] = lambda _: True
 
@@ -173,6 +174,20 @@ SENSOR_DESCRIPTIONS: tuple[PetkitSensorEntityDescription, ...] = (
         value_fn=lambda d: d.drink_event_count,
         supported_fn=lambda d: d.is_ctw3,
         available_fn=lambda d: d.is_ctw3,
+    ),
+    PetkitSensorEntityDescription(
+        key="last_drink_time",
+        translation_key="last_drink_time",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda d: d.last_drink_time,
+        supported_fn=lambda d: d.is_ctw3,
+        available_fn=lambda d: d.is_ctw3,
+    ),
+    PetkitSensorEntityDescription(
+        key="error_code",
+        translation_key="error_code",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.warning_breakdown,
     ),
     PetkitSensorEntityDescription(
         key="state_tail_hex",

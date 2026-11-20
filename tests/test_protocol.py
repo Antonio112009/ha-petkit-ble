@@ -80,9 +80,13 @@ class TestBuildInitPayload:
         assert bytes(result[8:16]) == secret
 
     def test_short_secret_padded(self) -> None:
-        """A short secret is right-padded with zeros."""
+        """A short secret is left-padded with zeros, as CMD 86 expects.
+
+        Confirmed on a CTW3 fw 111: the 6-byte cloud secret is accepted
+        only as ``00 00`` + secret.
+        """
         result = build_init_payload(0, b"\x01\x02\x03")
-        assert bytes(result[8:16]) == b"\x01\x02\x03\x00\x00\x00\x00\x00"
+        assert bytes(result[8:16]) == b"\x00\x00\x00\x00\x00\x01\x02\x03"
 
 
 class TestParseDeviceId:

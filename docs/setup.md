@@ -16,7 +16,7 @@ This guide covers installing **ha-petkit** in Home Assistant, configuring Blueto
 ### Installing Stable Releases (Recommended)
 1. Open Home Assistant → **HACS** → **Integrations**.
 2. Click the top-right menu (⋮) → **Custom repositories**.
-3. Add Repository URL: `https://github.com/aavdberg/ha-petkit`
+3. Add Repository URL: `https://github.com/Antonio112009/ha-petkit-ble`
 4. Category: **Integration**
 5. Click **Add**, then search for **Petkit BLE** and click **Download**.
 6. **Restart Home Assistant**.

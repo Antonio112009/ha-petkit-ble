@@ -1,10 +1,38 @@
 # Petkit BLE — Home Assistant Integration
 
-[![Lint](https://github.com/aavdberg/ha-petkit/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/aavdberg/ha-petkit/actions/workflows/lint.yml)
+[![Lint](https://github.com/Antonio112009/ha-petkit-ble/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/Antonio112009/ha-petkit-ble/actions/workflows/lint.yml)
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
 
-Local Bluetooth integration for **Petkit water fountains** (W4, W5, CTW3 series).  
-Communicates directly over BLE — no cloud, no API token, no Petkit account required.
+Local Bluetooth integration for **Petkit water fountains** (W4, W5, CTW2, CTW3 series).
+It talks to the fountain directly over BLE, including through ESPHome Bluetooth proxies.
+
+Based on [aavdberg/ha-petkit](https://github.com/aavdberg/ha-petkit) (MIT). The main
+difference: a fountain that is bound to the PetKit app **stays bound**. See
+[Fountains bound to the PetKit app](#fountains-bound-to-the-petkit-app).
+
+## Fountains bound to the PetKit app
+
+A bound fountain only answers after its per-device secret is verified. This
+integration never overwrites that secret on its own:
+
+- If the PetKit cloud integration ([Jezza34000/homeassistant_petkit](https://github.com/Jezza34000/homeassistant_petkit))
+  is set up, the secret is read from it automatically. No second PetKit login is made.
+- Otherwise you can type the secret in. It is the `secret` field in that
+  integration's device diagnostics.
+- "Re-pair" (writes a new secret, breaks the app pairing until a factory reset)
+  is only ever done when you pick it explicitly.
+
+Verified on an Eversweet Max Cordless (`Petkit_CTW3UV`, firmware 111) through an
+ESPHome proxy. The fountain accepts one Bluetooth connection at a time, so the
+PetKit app cannot connect during the few seconds of each poll.
+
+Protocol details: [PROTOCOL.md](PROTOCOL.md).
+
+## Events
+
+`petkit_ble_drink` is fired when a new drink is detected, with `address`, `name`,
+`count`, `delta` and `timestamp`. Detection samples the fountain's presence
+sensor at each poll (every 60 s), so short drinks can be missed.
 
 ## Supported Devices
 
@@ -41,13 +69,13 @@ For full documentation, entity reference, setup guides, and automation examples,
 
 ## Requirements
 
-- Home Assistant 2024.1 or newer
+- Home Assistant 2026.11 or newer
 - A Bluetooth adapter or [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html)
 
 ## Installation via HACS
 
 1. In HACS → **Integrations** → ⋮ → **Custom repositories**
-2. Add `https://github.com/aavdberg/ha-petkit` with category **Integration**
+2. Add `https://github.com/Antonio112009/ha-petkit-ble` with category **Integration**
 3. Install **Petkit BLE** and restart Home Assistant
 
 ## Testing the Dev Branch
@@ -65,7 +93,7 @@ For full documentation, entity reference, setup guides, and automation examples,
 
 To download the dev branch as a zip:
 ```
-https://github.com/aavdberg/ha-petkit/archive/refs/heads/dev.zip
+https://github.com/Antonio112009/ha-petkit-ble/archive/refs/heads/dev.zip
 ```
 Extract and copy the `custom_components/petkit_ble` folder.
 
@@ -82,7 +110,7 @@ Every push to `dev` automatically creates a **pre-release** tag (e.g. `v1.10.0-b
 
 ```bash
 cd /config/custom_components
-git clone -b dev https://github.com/aavdberg/ha-petkit.git petkit_ble_dev
+git clone -b dev https://github.com/Antonio112009/ha-petkit-ble.git petkit_ble_dev
 # Then symlink or copy the inner folder:
 cp -r petkit_ble_dev/custom_components/petkit_ble ./petkit_ble
 ```

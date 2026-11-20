@@ -10,3 +10,6 @@ Logs/
 uv.lock
 .venv/
 
+
+# raw BLE captures contain device id / serial
+captures/

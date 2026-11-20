@@ -1,0 +1,234 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Настройка фонтана Petkit",
+        "description": "Выберите найденный фонтан Petkit или введите его Bluetooth MAC-адрес вручную.",
+        "data": {
+          "address": "Bluetooth MAC-адрес",
+          "name": "Имя устройства (необязательно)"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Подтверждение фонтана Petkit",
+        "description": "Настроить фонтан **{name}** ({address})?"
+      },
+      "init_device": {
+        "title": "Настройка фонтана",
+        "description": "Подключаемся к **{name}**, чтобы проверить, привязан ли он к аккаунту PetKit. Если подключиться не удалось, поднесите фонтан или Bluetooth-прокси ближе и отправьте форму ещё раз."
+      },
+      "confirm_repair": {
+        "title": "Фонтан привязан к аккаунту PetKit",
+        "description": "**{name}** уже привязан, скорее всего к приложению PetKit, и отвечает только после проверки secret. Автоматически прочитать secret из облачной интеграции PetKit не удалось.\n\n**Ввести secret** сохраняет привязку к приложению: значение есть в диагностике устройства облачной интеграции PetKit (поле `secret`).\n\n**Перепривязать** записывает в фонтан новый secret. Существующая привязка будет затёрта: приложение PetKit и облачная интеграция перестанут видеть фонтан, пока вы не сбросите его и не привяжете заново.",
+        "menu_options": {
+          "enter_secret": "Ввести существующий secret (привязка сохраняется)",
+          "repair_confirm": "Перепривязать сейчас (затирает привязку)",
+          "repair_cancel": "Отмена, устройство не трогать"
+        }
+      },
+      "enter_secret": {
+        "title": "Secret фонтана",
+        "description": "Hex-secret фонтана **{name}** из облака PetKit (12 или 16 hex-символов). Он только проверяется, в фонтан ничего не записывается.",
+        "data": {
+          "secret": "Secret (hex)"
+        }
+      }
+    },
+    "error": {
+      "no_devices_found": "Фонтаны Petkit поблизости не найдены. Введите MAC-адрес вручную.",
+      "cannot_connect": "Не удалось подключиться к фонтану. Проверьте, что он в зоне действия и что приложение PetKit к нему не подключено, и попробуйте снова.",
+      "unknown": "Непредвиденная ошибка.",
+      "device_already_initialized": "Устройство уже инициализировано. Сначала сбросьте его к заводским настройкам.",
+      "init_failed": "Не удалось инициализировать устройство. Попробуйте ещё раз.",
+      "invalid_secret": "Это не похоже на secret. Нужно от 2 до 16 hex-символов.",
+      "secret_rejected": "Фонтан не принял этот secret или до него не удалось достучаться. Поднесите его ближе и проверьте значение."
+    },
+    "abort": {
+      "already_configured": "Это устройство уже настроено.",
+      "no_devices_found": "Фонтаны Petkit не найдены.",
+      "device_already_initialized": "Устройство уже инициализировано с secret. Сначала сбросьте его к заводским настройкам.",
+      "repair_failed": "Не удалось перепривязать устройство. Поднесите его ближе и попробуйте снова.",
+      "repair_cancelled": "Перепривязка отменена. Устройство не изменено.",
+      "unsupported_device": "Эта модель может поддерживаться не полностью. Сообщите о проблеме на GitHub, приложив модель и логи."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Параметры Petkit BLE",
+        "data": {
+          "debug": "Включить отладочный лог",
+          "sync_clock": "Синхронизировать часы фонтана"
+        },
+        "data_description": {
+          "debug": "Записывать каждый BLE-кадр и шаги авторизации. Полезно для диагностики, в обычной работе выключите.",
+          "sync_clock": "После каждого подключения записывать в фонтан местное время Home Assistant (CMD 84). По своим часам фонтан считает счётчики «за сегодня» и расписания. Чтение работает и без этого."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "filter_percent": {
+        "name": "Filter Life"
+      },
+      "pump_runtime_today": {
+        "name": "Pump Runtime Today"
+      },
+      "pump_runtime": {
+        "name": "Total Pump Runtime"
+      },
+      "battery_percent": {
+        "name": "Battery"
+      },
+      "battery_voltage_mv": {
+        "name": "Battery Voltage"
+      },
+      "water_purified_today": {
+        "name": "Water Purified Today"
+      },
+      "energy_today": {
+        "name": "Energy Today"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "energy_today_wh": {
+        "name": "Energy Today (Wh)"
+      },
+      "filter_days_remaining": {
+        "name": "Filter Days Remaining"
+      },
+      "days_since_clean": {
+        "name": "Days Since Cleaned"
+      },
+      "last_cleaned": {
+        "name": "Last Cleaned"
+      },
+      "firmware": {
+        "name": "Firmware"
+      },
+      "hardware_version": {
+        "name": "Hardware Version"
+      },
+      "rssi": {
+        "name": "Signal Strength"
+      },
+      "drink_count": {
+        "name": "Питьё за сегодня"
+      },
+      "state_tail_hex": {
+        "name": "CTW3 State Tail (hex)"
+      },
+      "last_drink_time": {
+        "name": "Последнее питьё"
+      },
+      "error_code": {
+        "name": "Код ошибки"
+      }
+    },
+    "binary_sensor": {
+      "pump_running": {
+        "name": "Pump Running"
+      },
+      "warning_water_missing": {
+        "name": "Water Missing"
+      },
+      "warning_filter": {
+        "name": "Filter Warning"
+      },
+      "warning_breakdown": {
+        "name": "Hardware Failure"
+      },
+      "dnd_active": {
+        "name": "Do Not Disturb"
+      },
+      "pet_detected": {
+        "name": "Pet Drinking"
+      },
+      "on_ac_power": {
+        "name": "AC Power"
+      },
+      "low_battery": {
+        "name": "Low Battery"
+      },
+      "suspended": {
+        "name": "Pump Suspended"
+      },
+      "uvc_active": {
+        "name": "UVC Sterilization"
+      }
+    },
+    "button": {
+      "reset_filter": {
+        "name": "Reset Filter"
+      },
+      "reset_clean": {
+        "name": "Reset Clean Counter"
+      },
+      "initialize_ctw3_settings": {
+        "name": "Initialize CTW3 Settings"
+      }
+    },
+    "number": {
+      "smart_work_minutes": {
+        "name": "Smart Mode Work Time"
+      },
+      "smart_sleep_minutes": {
+        "name": "Smart Mode Sleep Time"
+      },
+      "led_brightness": {
+        "name": "LED Brightness"
+      },
+      "battery_work_seconds": {
+        "name": "Battery Work Duration"
+      },
+      "battery_sleep_seconds": {
+        "name": "Battery Sleep Duration"
+      }
+    },
+    "time": {
+      "led_on_time": {
+        "name": "LED On Time"
+      },
+      "led_off_time": {
+        "name": "LED Off Time"
+      },
+      "dnd_start_time": {
+        "name": "DND Start Time"
+      },
+      "dnd_end_time": {
+        "name": "DND End Time"
+      }
+    },
+    "select": {
+      "mode": {
+        "name": "Mode",
+        "state": {
+          "normal": "Normal",
+          "smart": "Smart"
+        }
+      }
+    },
+    "switch": {
+      "power": {
+        "name": "Power"
+      },
+      "led": {
+        "name": "LED"
+      },
+      "do_not_disturb": {
+        "name": "Do Not Disturb"
+      },
+      "child_lock": {
+        "name": "Child Lock"
+      },
+      "smart_inductive_switch": {
+        "name": "Smart Mode Detection"
+      },
+      "battery_inductive_switch": {
+        "name": "Battery Mode Detection"
+      }
+    }
+  }
+}

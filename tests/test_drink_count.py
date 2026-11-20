@@ -59,7 +59,10 @@ class TestEdgeDetection:
 
         assert state.count == 1
         assert data.drink_event_count == 1
-        store.async_save.assert_awaited_once_with({"count": 1, "date": today_iso})
+        store.async_save.assert_awaited_once()
+        saved = store.async_save.await_args.args[0]
+        assert (saved["count"], saved["date"]) == (1, today_iso)
+        assert saved["last"] == state.last_drink.isoformat()
 
     @pytest.mark.asyncio
     async def test_steady_one_does_not_increment(self, today_iso: str) -> None:

@@ -3,16 +3,38 @@
   "name": "Petkit BLE",
   "after_dependencies": [],
   "bluetooth": [
-    {"connectable": true, "local_name": "Petkit_W4*"},
-    {"connectable": true, "local_name": "Petkit_W5*"},
-    {"connectable": true, "local_name": "Petkit_CTW*"}
+    {
+      "connectable": true,
+      "local_name": "Petkit_W4*"
+    },
+    {
+      "connectable": true,
+      "local_name": "Petkit_W5*"
+    },
+    {
+      "connectable": true,
+      "local_name": "Petkit_CTW*"
+    },
+    {
+      "connectable": true,
+      "service_uuid": "5b70bdd8-91bf-e789-9f4d-720508e63ebb",
+      "service_data_uuid": "0000c1a4-0000-1000-8000-00805f9b34fb"
+    }
   ],
-  "codeowners": ["@aavdberg"],
+  "codeowners": [
+    "@Antonio112009"
+  ],
   "config_flow": true,
-  "dependencies": ["bluetooth", "bluetooth_adapters"],
-  "documentation": "https://github.com/aavdberg/ha-petkit",
+  "dependencies": [
+    "bluetooth",
+    "bluetooth_adapters"
+  ],
+  "documentation": "https://github.com/Antonio112009/ha-petkit-ble",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/aavdberg/ha-petkit/issues",
-  "requirements": ["bleak>=0.22.0", "bleak-retry-connector>=3.0.0"],
-  "version": "1.11.0"
+  "issue_tracker": "https://github.com/Antonio112009/ha-petkit-ble/issues",
+  "requirements": [
+    "bleak>=3.0.2",
+    "bleak-retry-connector>=4.7.1"
+  ],
+  "version": "2.0.0"
 }

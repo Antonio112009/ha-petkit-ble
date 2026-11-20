@@ -18,6 +18,7 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
 
 from .ble_client import PetkitBleClient
+from .cloud import find_cloud_secret
 from .const import (
     ALIAS_CTW2,
     ALIAS_CTW3,
@@ -30,9 +31,18 @@ from .const import (
     CONF_DEVICE_SECRET,
     CONF_MODEL,
     CONF_NAME,
+    CONF_SYNC_CLOCK,
     DOMAIN,
     PETKIT_NAME_PREFIXES,
 )
+from .protocol import parse_secret_hex
+
+CONF_SECRET_INPUT = "secret"
+
+# Outcomes of a secret check.
+_ACCEPTED = "accepted"
+_REJECTED = "rejected"
+_UNREACHABLE = "unreachable"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -186,9 +196,10 @@ class PetkitBleConfigFlow(ConfigFlow, domain=DOMAIN):
 
         ble_device = async_ble_device_from_address(self.hass, address, connectable=True)
         if ble_device is None:
-            # Device not reachable — create entry without secret (legacy mode)
-            _LOGGER.warning("Device %s not reachable for init, creating entry without secret", name)
-            return self.async_create_entry(title=name, data=self._pending_data)
+            # Without a connection we cannot tell whether the fountain is bound,
+            # and an entry without its secret would never work. Let the user retry.
+            _LOGGER.warning("Device %s not reachable for setup", name)
+            return self._show_retry(name)
 
         client = PetkitBleClient(ble_device)
         try:
@@ -198,14 +209,26 @@ class PetkitBleConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="unsupported_device")
         except Exception:
             _LOGGER.exception("Failed to check device init status for %s", name)
-            # Cannot check — create entry without secret
-            return self.async_create_entry(title=name, data=self._pending_data)
+            return self._show_retry(name)
 
         if initialized:
-            # Device already bound (typically by the Petkit app). The firmware
-            # accepts a fresh CMD 73 init without a factory reset, so offer a
-            # re-pair recovery step instead of dead-ending the flow (issue #75).
+            # Device already bound (typically by the Petkit app). Its secret
+            # lives in the PetKit cloud; when the cloud integration is set up
+            # we read it from there and only verify it (CMD 86), which leaves
+            # the app pairing intact. Re-pairing with CMD 73 stays available
+            # as an explicit, destructive fallback (issue #75).
             self._repair_device_id = device_id
+            cloud_secret = find_cloud_secret(self.hass, address, device_id)
+            if cloud_secret:
+                outcome, secret_hex = await self._async_verify_secret(address, cloud_secret)
+                if outcome == _ACCEPTED:
+                    return self.async_create_entry(
+                        title=name, data={**self._pending_data, CONF_DEVICE_SECRET: secret_hex}
+                    )
+                if outcome == _UNREACHABLE:
+                    # Not a verdict on the secret: retry rather than offer a re-pair.
+                    return self._show_retry(name)
+                _LOGGER.warning("The PetKit cloud secret for %s was not accepted by the fountain", name)
             return await self.async_step_confirm_repair()
 
         # Uninitialised — register a fresh secret straight away.
@@ -218,13 +241,68 @@ class PetkitBleConfigFlow(ConfigFlow, domain=DOMAIN):
             )
         return self.async_create_entry(title=name, data={**self._pending_data, CONF_DEVICE_SECRET: secret_hex})
 
+    def _show_retry(self, name: str) -> ConfigFlowResult:
+        """Show the retry form after a connection problem; submitting it retries."""
+        return self.async_show_form(
+            step_id="init_device",
+            description_placeholders={"name": name},
+            errors={"base": "cannot_connect"},
+        )
+
     async def async_step_confirm_repair(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Let the user re-pair an already-bound device or cancel."""
         return self.async_show_menu(
             step_id="confirm_repair",
-            menu_options=["repair_confirm", "repair_cancel"],
+            menu_options=["enter_secret", "repair_confirm", "repair_cancel"],
             description_placeholders={"name": self._pending_data[CONF_NAME]},
         )
+
+    async def async_step_enter_secret(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Ask for the fountain's existing secret and verify it (no re-pair)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                parse_secret_hex(user_input[CONF_SECRET_INPUT])
+            except ValueError:
+                errors["base"] = "invalid_secret"
+            else:
+                outcome, secret_hex = await self._async_verify_secret(
+                    self._pending_data[CONF_ADDRESS], user_input[CONF_SECRET_INPUT]
+                )
+                if outcome == _ACCEPTED:
+                    return self.async_create_entry(
+                        title=self._pending_data[CONF_NAME],
+                        data={**self._pending_data, CONF_DEVICE_SECRET: secret_hex},
+                    )
+                errors["base"] = "secret_rejected" if outcome == _REJECTED else "cannot_connect"
+        return self.async_show_form(
+            step_id="enter_secret",
+            data_schema=vol.Schema({vol.Required(CONF_SECRET_INPUT): str}),
+            description_placeholders={"name": self._pending_data[CONF_NAME]},
+            errors=errors,
+        )
+
+    async def _async_verify_secret(self, address: str, secret_text: str) -> tuple[str, str | None]:
+        """Check a secret against the fountain; return (outcome, secret hex).
+
+        Only CMD 213 and CMD 86 are sent, so nothing on the fountain changes.
+        "Unreachable" is kept apart from "rejected": a weak Bluetooth link must
+        never look like a wrong secret, because the next option offered after
+        a rejection is the destructive re-pair.
+        """
+        try:
+            secret = parse_secret_hex(secret_text)
+        except ValueError:
+            return _REJECTED, None
+        ble_device = async_ble_device_from_address(self.hass, address, connectable=True)
+        if ble_device is None:
+            return _UNREACHABLE, None
+        try:
+            accepted = await PetkitBleClient(ble_device).async_verify_secret(secret)
+        except Exception:
+            _LOGGER.exception("Failed to verify the secret for %s", address)
+            return _UNREACHABLE, None
+        return (_ACCEPTED, secret.hex()) if accepted else (_REJECTED, None)
 
     async def async_step_repair_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Re-pair the device with a fresh secret, overwriting the old pairing."""
@@ -269,7 +347,11 @@ class PetkitBleOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
-                vol.Schema({vol.Optional(CONF_DEBUG): bool}),
-                self.config_entry.options or {CONF_DEBUG: False},
+                vol.Schema({vol.Optional(CONF_DEBUG): bool, vol.Optional(CONF_SYNC_CLOCK): bool}),
+                {
+                    CONF_DEBUG: False,
+                    CONF_SYNC_CLOCK: "CTW3" not in self.config_entry.data.get(CONF_MODEL, ""),
+                    **self.config_entry.options,
+                },
             ),
         )

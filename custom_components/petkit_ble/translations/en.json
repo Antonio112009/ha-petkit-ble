@@ -14,24 +14,34 @@
         "description": "Do you want to set up the **{name}** fountain ({address})?"
       },
       "init_device": {
-        "title": "Initialize Device",
-        "description": "The device **{name}** needs to be initialized. This will register a secret with the device. **Warning:** After initialization, the PetKit app will no longer be able to connect to this device. You can factory reset the device to restore app access."
+        "title": "Set up the fountain",
+        "description": "Connecting to **{name}** to check whether it is bound to a PetKit account. If the connection fails, bring the fountain or a Bluetooth proxy closer and submit to try again."
       },
       "confirm_repair": {
-        "title": "Device Already Paired",
-        "description": "**{name}** is already paired — most likely with the PetKit app, or with a previous Home Assistant setup whose secret was lost. To control it from Home Assistant you must re-pair it with a new secret. This **overwrites the existing pairing**: the PetKit app won't connect until you factory reset the fountain, and the two can't control it at the same time.",
+        "title": "Fountain is bound to a PetKit account",
+        "description": "**{name}** is already bound, most likely to the PetKit app, and only answers after its secret is verified. The secret could not be read automatically from the PetKit cloud integration.\n\n**Enter the secret** keeps the app pairing: you can find it in the PetKit cloud integration's device diagnostics (field `secret`).\n\n**Re-pair** writes a new secret to the fountain. This overwrites the existing pairing: the PetKit app and the cloud integration stop reaching the fountain until you factory reset it and bind it again.",
         "menu_options": {
+          "enter_secret": "Enter the existing secret (keeps the app pairing)",
           "repair_confirm": "Re-pair now (replaces the existing pairing)",
-          "repair_cancel": "Cancel — leave the device untouched"
+          "repair_cancel": "Cancel and leave the device untouched"
+        }
+      },
+      "enter_secret": {
+        "title": "Enter the fountain secret",
+        "description": "Hex secret of **{name}** as shown by the PetKit cloud (12 or 16 hex characters). It is only verified; nothing is written to the fountain.",
+        "data": {
+          "secret": "Secret (hex)"
         }
       }
     },
     "error": {
       "no_devices_found": "No Petkit fountains were found nearby. Enter the MAC address manually.",
-      "cannot_connect": "Could not connect to the device. Make sure it is powered on and in range.",
+      "cannot_connect": "Could not connect to the fountain. Make sure it is in range and that the PetKit app is not connected to it, then try again.",
       "unknown": "An unexpected error occurred.",
       "device_already_initialized": "Device is already initialized. Please factory reset it first (detach control module, hold power button 3 seconds until LEDs flash).",
-      "init_failed": "Failed to initialize the device. Please try again."
+      "init_failed": "Failed to initialize the device. Please try again.",
+      "invalid_secret": "That is not a valid secret. Use 2 to 16 hex characters.",
+      "secret_rejected": "The fountain did not accept this secret, or it could not be reached. Bring it into range and check the value."
     },
     "abort": {
       "already_configured": "This device is already configured.",
@@ -47,63 +57,149 @@
       "init": {
         "title": "Petkit BLE Options",
         "data": {
-          "debug": "Enable debug logging"
+          "debug": "Enable debug logging",
+          "sync_clock": "Sync the fountain clock"
         },
         "data_description": {
-          "debug": "Log every BLE frame (TX/RX) and authentication step. Useful for diagnosing connection issues. Disable in production."
+          "debug": "Log every BLE frame (TX/RX) and authentication step. Useful for diagnosing connection issues. Disable in production.",
+          "sync_clock": "Write Home Assistant's local time to the fountain after each connection (CMD 84). The fountain uses its clock for the \"today\" counters and schedules. Reading works without it."
         }
       }
     }
   },
   "entity": {
     "sensor": {
-      "filter_percent": {"name": "Filter Life"},
-      "pump_runtime_today": {"name": "Pump Runtime Today"},
-      "pump_runtime": {"name": "Total Pump Runtime"},
-      "battery_percent": {"name": "Battery"},
-      "battery_voltage_mv": {"name": "Battery Voltage"},
-      "water_purified_today": {"name": "Water Purified Today"},
-      "energy_today": {"name": "Energy Today"},
-      "power": {"name": "Power"},
-      "energy_today_wh": {"name": "Energy Today (Wh)"},
-      "filter_days_remaining": {"name": "Filter Days Remaining"},
-      "days_since_clean": {"name": "Days Since Cleaned"},
-      "last_cleaned": {"name": "Last Cleaned"},
-      "firmware": {"name": "Firmware"},
-      "hardware_version": {"name": "Hardware Version"},
-      "rssi": {"name": "Signal Strength"},
-      "drink_count": {"name": "Drink Events Today"},
-      "state_tail_hex": {"name": "CTW3 State Tail (hex)"}
+      "filter_percent": {
+        "name": "Filter Life"
+      },
+      "pump_runtime_today": {
+        "name": "Pump Runtime Today"
+      },
+      "pump_runtime": {
+        "name": "Total Pump Runtime"
+      },
+      "battery_percent": {
+        "name": "Battery"
+      },
+      "battery_voltage_mv": {
+        "name": "Battery Voltage"
+      },
+      "water_purified_today": {
+        "name": "Water Purified Today"
+      },
+      "energy_today": {
+        "name": "Energy Today"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "energy_today_wh": {
+        "name": "Energy Today (Wh)"
+      },
+      "filter_days_remaining": {
+        "name": "Filter Days Remaining"
+      },
+      "days_since_clean": {
+        "name": "Days Since Cleaned"
+      },
+      "last_cleaned": {
+        "name": "Last Cleaned"
+      },
+      "firmware": {
+        "name": "Firmware"
+      },
+      "hardware_version": {
+        "name": "Hardware Version"
+      },
+      "rssi": {
+        "name": "Signal Strength"
+      },
+      "drink_count": {
+        "name": "Drink Events Today"
+      },
+      "state_tail_hex": {
+        "name": "CTW3 State Tail (hex)"
+      },
+      "last_drink_time": {
+        "name": "Last Drink"
+      },
+      "error_code": {
+        "name": "Error Code"
+      }
     },
     "binary_sensor": {
-      "pump_running": {"name": "Pump Running"},
-      "warning_water_missing": {"name": "Water Missing"},
-      "warning_filter": {"name": "Filter Warning"},
-      "warning_breakdown": {"name": "Hardware Failure"},
-      "dnd_active": {"name": "Do Not Disturb"},
-      "pet_detected": {"name": "Pet Drinking"},
-      "on_ac_power": {"name": "AC Power"},
-      "low_battery": {"name": "Low Battery"},
-      "suspended": {"name": "Pump Suspended"},
-      "uvc_active": {"name": "UVC Sterilization"}
+      "pump_running": {
+        "name": "Pump Running"
+      },
+      "warning_water_missing": {
+        "name": "Water Missing"
+      },
+      "warning_filter": {
+        "name": "Filter Warning"
+      },
+      "warning_breakdown": {
+        "name": "Hardware Failure"
+      },
+      "dnd_active": {
+        "name": "Do Not Disturb"
+      },
+      "pet_detected": {
+        "name": "Pet Drinking"
+      },
+      "on_ac_power": {
+        "name": "AC Power"
+      },
+      "low_battery": {
+        "name": "Low Battery"
+      },
+      "suspended": {
+        "name": "Pump Suspended"
+      },
+      "uvc_active": {
+        "name": "UVC Sterilization"
+      }
     },
     "button": {
-      "reset_filter": {"name": "Reset Filter"},
-      "reset_clean": {"name": "Reset Clean Counter"},
-      "initialize_ctw3_settings": {"name": "Initialize CTW3 Settings"}
+      "reset_filter": {
+        "name": "Reset Filter"
+      },
+      "reset_clean": {
+        "name": "Reset Clean Counter"
+      },
+      "initialize_ctw3_settings": {
+        "name": "Initialize CTW3 Settings"
+      }
     },
     "number": {
-      "smart_work_minutes": {"name": "Smart Mode Work Time"},
-      "smart_sleep_minutes": {"name": "Smart Mode Sleep Time"},
-      "led_brightness": {"name": "LED Brightness"},
-      "battery_work_seconds": {"name": "Battery Work Duration"},
-      "battery_sleep_seconds": {"name": "Battery Sleep Duration"}
+      "smart_work_minutes": {
+        "name": "Smart Mode Work Time"
+      },
+      "smart_sleep_minutes": {
+        "name": "Smart Mode Sleep Time"
+      },
+      "led_brightness": {
+        "name": "LED Brightness"
+      },
+      "battery_work_seconds": {
+        "name": "Battery Work Duration"
+      },
+      "battery_sleep_seconds": {
+        "name": "Battery Sleep Duration"
+      }
     },
     "time": {
-      "led_on_time": {"name": "LED On Time"},
-      "led_off_time": {"name": "LED Off Time"},
-      "dnd_start_time": {"name": "DND Start Time"},
-      "dnd_end_time": {"name": "DND End Time"}
+      "led_on_time": {
+        "name": "LED On Time"
+      },
+      "led_off_time": {
+        "name": "LED Off Time"
+      },
+      "dnd_start_time": {
+        "name": "DND Start Time"
+      },
+      "dnd_end_time": {
+        "name": "DND End Time"
+      }
     },
     "select": {
       "mode": {
@@ -115,12 +211,24 @@
       }
     },
     "switch": {
-      "power": {"name": "Power"},
-      "led": {"name": "LED"},
-      "do_not_disturb": {"name": "Do Not Disturb"},
-      "child_lock": {"name": "Child Lock"},
-      "smart_inductive_switch": {"name": "Smart Mode Detection"},
-      "battery_inductive_switch": {"name": "Battery Mode Detection"}
+      "power": {
+        "name": "Power"
+      },
+      "led": {
+        "name": "LED"
+      },
+      "do_not_disturb": {
+        "name": "Do Not Disturb"
+      },
+      "child_lock": {
+        "name": "Child Lock"
+      },
+      "smart_inductive_switch": {
+        "name": "Smart Mode Detection"
+      },
+      "battery_inductive_switch": {
+        "name": "Battery Mode Detection"
+      }
     }
   }
 }

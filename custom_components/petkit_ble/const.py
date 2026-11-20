@@ -92,6 +92,20 @@ CTW3_STATE_PAYLOAD_MIN_LEN = 26
 # Poll interval in seconds
 POLL_INTERVAL = 60
 
+# Resilience: a failed poll keeps the previous data for this many consecutive
+# failures before entities turn unavailable, and each failure doubles the wait
+# before the next attempt up to MAX_BACKOFF_INTERVAL seconds.
+MAX_STALE_POLLS = 3
+MAX_BACKOFF_INTERVAL = 900
+
+# Bus event fired when a new drink is detected.
+EVENT_DRINK = "petkit_ble_drink"
+
+# Domain of the PetKit cloud integration (Jezza34000/homeassistant_petkit).
+# When it is set up, the per-device BLE secret is read from its in-memory
+# device list, so no extra PetKit login is needed.
+CLOUD_DOMAIN = "petkit"
+
 # Epoch offset: seconds from Unix epoch (1970) to Petkit epoch (2000-01-01 UTC)
 PETKIT_EPOCH_OFFSET = 946684800
 
@@ -122,3 +136,7 @@ AUTH_STEP_DELAY = 0.3
 
 # Options
 CONF_DEBUG = "debug"
+# Send CMD 84 (clock sync) after authentication. Reads work without it on
+# CTW3; when unset it defaults to off for CTW3 and on for the older models,
+# whose protocol notes call it required.
+CONF_SYNC_CLOCK = "sync_clock"

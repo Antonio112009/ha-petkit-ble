@@ -8,6 +8,14 @@
           "smart": "mdi:leaf"
         }
       }
+    },
+    "sensor": {
+      "last_drink_time": {
+        "default": "mdi:cup-water"
+      },
+      "error_code": {
+        "default": "mdi:alert-circle-outline"
+      }
     }
   }
 }

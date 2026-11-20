@@ -28,15 +28,20 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
-from .ble_client import PetkitBleClient, PetkitFountainData
+from .ble_client import PetkitAuthError, PetkitBleClient, PetkitFountainData
 from .const import (
     CMD_WRITE_SETTINGS,
     CONF_ADDRESS,
     CONF_DEVICE_SECRET,
     CONF_MODEL,
     CONF_NAME,
+    CONF_SYNC_CLOCK,
+    CTW3_ALIASES,
     DOMAIN,
+    EVENT_DRINK,
     KNOWN_ALIASES,
+    MAX_BACKOFF_INTERVAL,
+    MAX_STALE_POLLS,
     MODE_NORMAL,
     MODE_SMART,
     POLL_INTERVAL,
@@ -237,6 +242,20 @@ def _diff_state_bytes(
     return out
 
 
+def backoff_interval(failed_polls: int) -> int:
+    """Seconds to wait before the next poll after ``failed_polls`` failures.
+
+    The first ``MAX_STALE_POLLS`` failures retry at the normal interval, so a
+    single dropped poll neither delays the next sample nor stretches how long
+    stale data is shown. Only once entities are unavailable does the wait
+    double per failure, up to ``MAX_BACKOFF_INTERVAL``.
+    """
+    beyond = failed_polls - MAX_STALE_POLLS
+    if beyond <= 0:
+        return POLL_INTERVAL
+    return min(POLL_INTERVAL * 2 ** min(beyond, 10), MAX_BACKOFF_INTERVAL)
+
+
 @dataclass
 class _DrinkCountState:
     """Mutable holder for the daily drink-event counter.
@@ -251,6 +270,7 @@ class _DrinkCountState:
     prev_detect_status: int | None = None
     count: int = 0
     date_iso: str = ""
+    last_drink: datetime | None = None
 
 
 async def _load_drink_state_into(state: _DrinkCountState, store: Any) -> None:
@@ -279,6 +299,9 @@ async def _load_drink_state_into(state: _DrinkCountState, store: Any) -> None:
         _LOGGER.debug("Discarding negative drink-count from store: %d", count)
         return
     state.count = count
+    last_raw = stored.get("last")
+    if isinstance(last_raw, str):
+        state.last_drink = _parse_iso_timestamp(last_raw)
     today_iso = dt_util.now().date().isoformat()
     if state.date_iso != today_iso:
         state.count = 0
@@ -289,13 +312,16 @@ async def _track_drink_event_into(
     state: _DrinkCountState,
     store: Any,
     data: PetkitFountainData,
-) -> None:
+) -> int:
     """Update ``state`` from a freshly polled ``data``; persist on change.
 
     Increments on a ``detect_status`` 0 → 1 transition. Resets the counter
     when the local date rolls over so the sensor is genuinely a per-day
     counter. Always writes the current count back onto ``data`` so the
     sensor reflects the latest value even when nothing changed.
+
+    Returns the number of new drink events seen in this poll (0 or 1), so the
+    coordinator can fire the ``petkit_ble_drink`` event.
     """
     today_iso = dt_util.now().date().isoformat()
     if today_iso != state.date_iso:
@@ -313,15 +339,20 @@ async def _track_drink_event_into(
     if state.prev_detect_status is not None and state.prev_detect_status == 0 and cur_detect == 1:
         state.count += 1
         count_changed = True
+        state.last_drink = dt_util.now()
         _LOGGER.debug("Drink event detected (count=%d)", state.count)
     state.prev_detect_status = cur_detect
     data.drink_event_count = state.count
+    data.last_drink_time = state.last_drink
 
     if count_changed:
+        last = state.last_drink
+        last_iso = last.isoformat() if isinstance(last, datetime) else None
         try:
-            await store.async_save({"count": state.count, "date": state.date_iso})
+            await store.async_save({"count": state.count, "date": state.date_iso, "last": last_iso})
         except Exception as exc:
             _LOGGER.debug("Failed to persist drink-count store: %s", exc)
+    return 1 if count_changed else 0
 
 
 @dataclass
@@ -346,7 +377,7 @@ def _parse_iso_timestamp(raw_iso: str) -> datetime | None:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=UTC)
         return dt
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -454,6 +485,9 @@ class PetkitBleCoordinator(DataUpdateCoordinator[PetkitFountainData]):
         # diagnostic aid for issue #65 (CTW3 detect_status offset unknown).
         self._prev_raw_state: bytes = b""
 
+        # Consecutive failed polls, for stale-data tolerance and backoff.
+        self._failed_polls: int = 0
+
         super().__init__(
             hass,
             _LOGGER,
@@ -522,8 +556,46 @@ class PetkitBleCoordinator(DataUpdateCoordinator[PetkitFountainData]):
         await self.async_request_refresh()
 
     async def _track_drink_event(self, data: PetkitFountainData) -> None:
-        """Thin wrapper around ``_track_drink_event_into`` for the poll loop."""
-        await _track_drink_event_into(self._drink_state, self._drink_store, data)
+        """Count drink events and fire ``petkit_ble_drink`` for each new one."""
+        delta = await _track_drink_event_into(self._drink_state, self._drink_store, data)
+        if delta:
+            last = self._drink_state.last_drink
+            self.hass.bus.async_fire(
+                EVENT_DRINK,
+                {
+                    "address": self._address,
+                    "name": self._name,
+                    "count": self._drink_state.count,
+                    "delta": delta,
+                    "timestamp": last.isoformat() if isinstance(last, datetime) else None,
+                },
+            )
+
+    def _local_utc_offset_hours(self) -> int:
+        """Whole-hour UTC offset of Home Assistant's time zone, for CMD 84."""
+        offset = dt_util.now().utcoffset()
+        return round(offset.total_seconds() / 3600) if offset is not None else 0
+
+    def _on_poll_failed(self, message: str, exc: Exception | None = None) -> PetkitFountainData:
+        """Handle one failed poll: back off, and keep stale data for a while.
+
+        Bluetooth through a proxy drops polls now and then. Entities stay on
+        the last known values for ``MAX_STALE_POLLS`` consecutive failures and
+        only then turn unavailable. From then on every failure doubles the
+        polling interval (capped) so an out-of-range fountain is not hammered.
+        """
+        self._failed_polls += 1
+        self.update_interval = timedelta(seconds=backoff_interval(self._failed_polls))
+        if self.data is not None and self._failed_polls <= MAX_STALE_POLLS:
+            _LOGGER.debug(
+                "Poll %d/%d failed for %s, keeping last data: %s",
+                self._failed_polls,
+                MAX_STALE_POLLS,
+                self._name,
+                message,
+            )
+            return self.data
+        raise UpdateFailed(message) from exc
 
     def _log_unreachable_diagnostics(self) -> None:
         """Emit a single diagnostic log line explaining why the device is not connectable.
@@ -641,21 +713,40 @@ class PetkitBleCoordinator(DataUpdateCoordinator[PetkitFountainData]):
             )
             device = await self._wait_for_connectable_device(CONNECTABLE_WAIT_TIMEOUT)
         if device is None:
-            self._log_unreachable_diagnostics()
+            if self._failed_polls >= MAX_STALE_POLLS:
+                self._log_unreachable_diagnostics()
             return None
-        return PetkitBleClient(device)
+        return PetkitBleClient(
+            device,
+            utc_offset_hours=self._local_utc_offset_hours(),
+            sync_clock=self._config_entry.options.get(CONF_SYNC_CLOCK, self._alias not in CTW3_ALIASES),
+        )
 
     async def _async_update_data(self) -> PetkitFountainData:
         """Fetch the latest data from the fountain."""
         async with self._ble_lock:
             client = await self._get_ble_client()
             if client is None:
-                raise UpdateFailed(f"Petkit fountain {self._name} ({self._address}) not reachable via Bluetooth")
+                return self._on_poll_failed(
+                    f"Petkit fountain {self._name} ({self._address}) not reachable via Bluetooth"
+                )
             try:
                 data = await client.async_poll(self._alias, self._secret, initial_mode=self._mode_cache)
+            except PetkitAuthError as exc:
+                # A wrong secret never fixes itself: surface it at once.
+                self._failed_polls = MAX_STALE_POLLS
+                self.update_interval = timedelta(seconds=MAX_BACKOFF_INTERVAL)
+                raise UpdateFailed(
+                    f"{self._name} rejected the stored secret. Remove the device and add it again "
+                    f"so the secret is read afresh. ({exc})"
+                ) from exc
             except Exception as exc:
-                raise UpdateFailed(f"Error communicating with {self._name}: {exc}") from exc
+                return self._on_poll_failed(f"Error communicating with {self._name}: {exc}", exc)
             self._reconcile_settings(data)
+            if self._failed_polls:
+                _LOGGER.debug("%s reachable again after %d failed poll(s)", self._name, self._failed_polls)
+            self._failed_polls = 0
+            self.update_interval = timedelta(seconds=POLL_INTERVAL)
 
         _LOGGER.debug(
             "Polled %s: power=%s mode=%s firmware=%s", self._name, data.power_status, data.mode, data.firmware

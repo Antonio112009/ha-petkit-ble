@@ -45,9 +45,13 @@ from .const import (
     KNOWN_ALIASES,
     POWER_COEFF_W,
 )
-from .protocol import build_init_payload, build_time_sync_payload, parse_device_id
+from .protocol import build_init_payload, build_time_sync_payload, normalize_secret, parse_device_id
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class PetkitAuthError(RuntimeError):
+    """The fountain rejected the secret (CMD 86 answered 0)."""
 
 
 @dataclass
@@ -105,6 +109,7 @@ class PetkitFountainData:
 
     # Drink statistics
     drink_event_count: int = 0
+    last_drink_time: datetime | None = None
 
     # Cleaning guidance
     last_cleaned: datetime | None = None
@@ -218,12 +223,34 @@ class PetkitFountainData:
         return self.energy_today_kwh * 1000
 
 
+def parse_battery_mv(payload: bytes) -> int:
+    """Decode a CMD 66 reply to millivolts.
+
+    CTW3 answers 3 bytes: big-endian millivolts + battery percent (captured
+    ``10 88 64`` = 4232 mV, 100 %). Older models answer 2 bytes that the
+    original protocol notes describe as a little-endian raw ADC value.
+    """
+    if len(payload) >= 3:
+        return (payload[0] << 8) | payload[1]
+    if len(payload) == 2:
+        return payload[0] | (payload[1] << 8)
+    return 0
+
+
 class PetkitBleClient:
     """BLE client for Petkit water fountains implementing the Petkit protocol."""
 
-    def __init__(self, ble_device: BLEDevice) -> None:
-        """Initialise with a discovered BLE device."""
+    def __init__(self, ble_device: BLEDevice, *, utc_offset_hours: int | None = None, sync_clock: bool = True) -> None:
+        """Initialise with a discovered BLE device.
+
+        ``sync_clock`` controls whether CMD 84 (a write to the device clock)
+        is sent after authentication; ``utc_offset_hours`` is the local UTC
+        offset it carries. The fountain uses its clock for the "today"
+        counters and schedules.
+        """
         self._device = ble_device
+        self._utc_offset_hours = utc_offset_hours
+        self._sync_clock = sync_clock
         self._client: BleakClient | None = None
         self._rx_buf: bytearray = bytearray()
         self._rx_queue: asyncio.Queue[bytes] = asyncio.Queue()
@@ -449,19 +476,21 @@ class PetkitBleClient:
 
         await asyncio.sleep(AUTH_STEP_DELAY)
 
-        # CMD 86 — verify with stored secret
-        if secret is None:
-            secret = bytes(8)  # zero secret for uninitialized devices
-        payload_86 = await self._send_and_wait(CMD_AUTH_VERIFY, FRAME_TYPE_SEND, list(secret[:8]))
+        # CMD 86 — verify with stored secret (zero secret for uninitialised devices)
+        payload_86 = await self._send_and_wait(CMD_AUTH_VERIFY, FRAME_TYPE_SEND, list(normalize_secret(secret)))
         await asyncio.sleep(AUTH_STEP_DELAY)
-        if payload_86 is None or len(payload_86) == 0 or payload_86[0] != 1:
-            resp_hex = payload_86.hex() if payload_86 else "None"
-            raise RuntimeError(f"Authentication failed (CMD 86 response: {resp_hex})")
+        if payload_86 is None:
+            raise RuntimeError("Authentication failed (no CMD 86 response)")
+        if len(payload_86) == 0 or payload_86[0] != 1:
+            raise PetkitAuthError(f"Secret rejected by the fountain (CMD 86 response: {payload_86.hex()})")
 
         _LOGGER.debug("Authentication complete for %s", alias)
 
+        if not self._sync_clock:
+            return
+
         # CMD 84 — set device time
-        time_bytes = build_time_sync_payload()
+        time_bytes = build_time_sync_payload(self._utc_offset_hours)
         await self._send_and_wait(CMD_SET_TIME, FRAME_TYPE_SEND, time_bytes)
         await asyncio.sleep(AUTH_STEP_DELAY)
 
@@ -644,8 +673,28 @@ class PetkitBleClient:
                 return False
             # Verify with CMD 86
             await asyncio.sleep(AUTH_STEP_DELAY)
-            payload_86 = await self._send_and_wait(CMD_AUTH_VERIFY, FRAME_TYPE_SEND, list(secret[:8]))
+            payload_86 = await self._send_and_wait(CMD_AUTH_VERIFY, FRAME_TYPE_SEND, list(normalize_secret(secret)))
             return payload_86 is not None and len(payload_86) > 0 and payload_86[0] == 1
+        finally:
+            await self.disconnect()
+
+    async def async_verify_secret(self, secret: bytes) -> bool:
+        """Connect and check ``secret`` with CMD 86 only. Writes nothing.
+
+        Used by the config flow to test a secret imported from the PetKit
+        cloud integration (or typed by the user) before creating the entry,
+        so an app-bound fountain is never re-initialised by accident.
+        """
+        try:
+            await self._connect()
+            info = await self._send_and_wait(CMD_GET_DEVICE_INFO, FRAME_TYPE_SEND, [])
+            if info is None:
+                raise RuntimeError("CMD 213 got no response")
+            await asyncio.sleep(AUTH_STEP_DELAY)
+            reply = await self._send_and_wait(CMD_AUTH_VERIFY, FRAME_TYPE_SEND, list(normalize_secret(secret)))
+            if reply is None:
+                raise RuntimeError("CMD 86 got no response")
+            return len(reply) > 0 and reply[0] == 1
         finally:
             await self.disconnect()
 
@@ -719,10 +768,10 @@ class PetkitBleClient:
                 else:
                     self._parse_config_generic(data, payload_211)
 
-            # CMD 66 — raw ADC voltage (2 bytes little-endian per protocol spec)
+            # CMD 66 — battery / supply reading
             payload_66 = await self._send_and_wait(CMD_GET_BATTERY, FRAME_TYPE_SEND, [0, 0])
-            if payload_66 is not None and len(payload_66) >= 2:
-                data.battery_voltage_mv_66 = payload_66[0] + payload_66[1] * 256
+            if payload_66 is not None:
+                data.battery_voltage_mv_66 = parse_battery_mv(payload_66)
 
             # Serial number: prefer GATT DIS, fall back to CMD 213.
             assert self._client is not None
