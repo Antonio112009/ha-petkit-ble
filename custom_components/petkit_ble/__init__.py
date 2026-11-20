@@ -115,8 +115,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update — re-apply debug level without full reload."""
+    """Handle options update — re-apply debug level and poll interval without full reload."""
     await _apply_debug_option(hass, entry)
+    coordinator = getattr(entry, "runtime_data", None)
+    if isinstance(coordinator, PetkitBleCoordinator):
+        coordinator.async_apply_options()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

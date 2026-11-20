@@ -335,7 +335,9 @@ class PetkitBleClient:
         seq = self._next_seq()
         frame = self._build_frame(cmd, type_, seq, data)
         await self._client.write_gatt_char(BLE_WRITE_UUID, frame, response=False)
-        _LOGGER.debug("TX CMD %d: %s", cmd, frame.hex())
+        # Never log the pairing secret (CMD 86 verify, CMD 73 init).
+        shown = "<secret hidden>" if cmd in (CMD_AUTH_VERIFY, CMD_DEVICE_INIT) else frame.hex()
+        _LOGGER.debug("TX CMD %d: %s", cmd, shown)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         log_timeout = _LOGGER.debug if quiet else _LOGGER.warning

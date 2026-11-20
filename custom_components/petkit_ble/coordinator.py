@@ -35,13 +35,16 @@ from .const import (
     CONF_DEVICE_SECRET,
     CONF_MODEL,
     CONF_NAME,
+    CONF_POLL_INTERVAL,
     CONF_SYNC_CLOCK,
     CTW3_ALIASES,
     DOMAIN,
     EVENT_DRINK,
     KNOWN_ALIASES,
     MAX_BACKOFF_INTERVAL,
+    MAX_POLL_INTERVAL,
     MAX_STALE_POLLS,
+    MIN_POLL_INTERVAL,
     MODE_NORMAL,
     MODE_SMART,
     POLL_INTERVAL,
@@ -242,7 +245,16 @@ def _diff_state_bytes(
     return out
 
 
-def backoff_interval(failed_polls: int) -> int:
+def clamp_poll_interval(value: Any) -> int:
+    """Return a usable poll interval in seconds from an option value."""
+    try:
+        seconds = int(value)
+    except TypeError, ValueError:
+        return POLL_INTERVAL
+    return max(MIN_POLL_INTERVAL, min(MAX_POLL_INTERVAL, seconds))
+
+
+def backoff_interval(failed_polls: int, base: int = POLL_INTERVAL) -> int:
     """Seconds to wait before the next poll after ``failed_polls`` failures.
 
     The first ``MAX_STALE_POLLS`` failures retry at the normal interval, so a
@@ -252,8 +264,8 @@ def backoff_interval(failed_polls: int) -> int:
     """
     beyond = failed_polls - MAX_STALE_POLLS
     if beyond <= 0:
-        return POLL_INTERVAL
-    return min(POLL_INTERVAL * 2 ** min(beyond, 10), MAX_BACKOFF_INTERVAL)
+        return base
+    return max(base, min(base * 2 ** min(beyond, 10), MAX_BACKOFF_INTERVAL))
 
 
 @dataclass
@@ -492,8 +504,19 @@ class PetkitBleCoordinator(DataUpdateCoordinator[PetkitFountainData]):
             hass,
             _LOGGER,
             name=f"{DOMAIN}_{self._address}",
-            update_interval=timedelta(seconds=POLL_INTERVAL),
+            update_interval=timedelta(seconds=self.poll_interval),
         )
+
+    @property
+    def poll_interval(self) -> int:
+        """Configured seconds between polls."""
+        return clamp_poll_interval(self._config_entry.options.get(CONF_POLL_INTERVAL, POLL_INTERVAL))
+
+    @callback
+    def async_apply_options(self) -> None:
+        """Pick up a changed poll interval without reloading the entry."""
+        if not self._failed_polls:
+            self.update_interval = timedelta(seconds=self.poll_interval)
 
     async def async_load_persistent_state(self) -> None:
         """Load persisted drink, mode, cleaning, and confirmed setting state.
@@ -585,7 +608,7 @@ class PetkitBleCoordinator(DataUpdateCoordinator[PetkitFountainData]):
         polling interval (capped) so an out-of-range fountain is not hammered.
         """
         self._failed_polls += 1
-        self.update_interval = timedelta(seconds=backoff_interval(self._failed_polls))
+        self.update_interval = timedelta(seconds=backoff_interval(self._failed_polls, self.poll_interval))
         if self.data is not None and self._failed_polls <= MAX_STALE_POLLS:
             _LOGGER.debug(
                 "Poll %d/%d failed for %s, keeping last data: %s",
@@ -746,7 +769,7 @@ class PetkitBleCoordinator(DataUpdateCoordinator[PetkitFountainData]):
             if self._failed_polls:
                 _LOGGER.debug("%s reachable again after %d failed poll(s)", self._name, self._failed_polls)
             self._failed_polls = 0
-            self.update_interval = timedelta(seconds=POLL_INTERVAL)
+            self.update_interval = timedelta(seconds=self.poll_interval)
 
         _LOGGER.debug(
             "Polled %s: power=%s mode=%s firmware=%s", self._name, data.power_status, data.mode, data.firmware

@@ -31,9 +31,13 @@ from .const import (
     CONF_DEVICE_SECRET,
     CONF_MODEL,
     CONF_NAME,
+    CONF_POLL_INTERVAL,
     CONF_SYNC_CLOCK,
     DOMAIN,
+    MAX_POLL_INTERVAL,
+    MIN_POLL_INTERVAL,
     PETKIT_NAME_PREFIXES,
+    POLL_INTERVAL,
 )
 from .protocol import parse_secret_hex
 
@@ -347,8 +351,17 @@ class PetkitBleOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
-                vol.Schema({vol.Optional(CONF_DEBUG): bool, vol.Optional(CONF_SYNC_CLOCK): bool}),
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_POLL_INTERVAL): vol.All(
+                            vol.Coerce(int), vol.Range(min=MIN_POLL_INTERVAL, max=MAX_POLL_INTERVAL)
+                        ),
+                        vol.Optional(CONF_SYNC_CLOCK): bool,
+                        vol.Optional(CONF_DEBUG): bool,
+                    }
+                ),
                 {
+                    CONF_POLL_INTERVAL: POLL_INTERVAL,
                     CONF_DEBUG: False,
                     CONF_SYNC_CLOCK: "CTW3" not in self.config_entry.data.get(CONF_MODEL, ""),
                     **self.config_entry.options,

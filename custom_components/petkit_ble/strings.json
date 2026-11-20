@@ -216,11 +216,13 @@
         "title": "Petkit BLE Options",
         "data": {
           "debug": "Enable debug logging",
-          "sync_clock": "Sync the fountain clock"
+          "sync_clock": "Sync the fountain clock",
+          "poll_interval": "Poll interval (seconds)"
         },
         "data_description": {
           "debug": "Log every BLE frame (TX/RX) and authentication step. Useful for diagnosing connection issues. Disable in production.",
-          "sync_clock": "Write Home Assistant's local time to the fountain after each connection (CMD 84). The fountain uses its clock for the \"today\" counters and schedules. Reading works without it."
+          "sync_clock": "Write Home Assistant's local time to the fountain after each connection (CMD 84). The fountain uses its clock for the \"today\" counters and schedules. Reading works without it.",
+          "poll_interval": "How often to connect to the fountain (15 to 600). Pet detection is only sampled when polling, so a shorter interval catches more short drinks. The fountain accepts one Bluetooth connection at a time, so the PetKit app or relay has to wait while a poll runs."
         }
       }
     }

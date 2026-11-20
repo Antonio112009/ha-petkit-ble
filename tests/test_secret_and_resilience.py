@@ -162,3 +162,40 @@ async def test_rejected_secret_raises_auth_error():
     client._send_and_wait = fake_send
     with pytest.raises(PetkitAuthError):
         await client._authenticate("CTW3", bytes(8))
+
+
+def test_poll_interval_option_is_clamped():
+    from custom_components.petkit_ble.const import MAX_POLL_INTERVAL, MIN_POLL_INTERVAL
+    from custom_components.petkit_ble.coordinator import clamp_poll_interval
+
+    assert clamp_poll_interval(20) == 20
+    assert clamp_poll_interval("30") == 30
+    assert clamp_poll_interval(1) == MIN_POLL_INTERVAL
+    assert clamp_poll_interval(99999) == MAX_POLL_INTERVAL
+    assert clamp_poll_interval(None) == POLL_INTERVAL
+    assert clamp_poll_interval("fast") == POLL_INTERVAL
+
+
+def test_backoff_follows_the_configured_interval():
+    assert backoff_interval(0, 20) == 20
+    assert backoff_interval(MAX_STALE_POLLS, 20) == 20
+    assert backoff_interval(MAX_STALE_POLLS + 1, 20) == 40
+    assert backoff_interval(50, 20) == MAX_BACKOFF_INTERVAL
+    # A slow configured interval is never shortened by the cap.
+    assert backoff_interval(50, 600) >= 600
+
+
+async def test_debug_log_never_contains_the_secret(caplog):
+    import logging
+
+    from custom_components.petkit_ble.const import CMD_AUTH_VERIFY, CMD_GET_STATE
+
+    client = PetkitBleClient(MagicMock(), sync_clock=False)
+    client._client = MagicMock(write_gatt_char=AsyncMock())
+    secret = bytes.fromhex("0000a1b2c3d4e5f6")  # gitleaks:allow (dummy value)
+    with caplog.at_level(logging.DEBUG, logger="custom_components.petkit_ble.ble_client"):
+        await client._send_and_wait(CMD_AUTH_VERIFY, 1, list(secret), timeout=0.01, quiet=True)
+        await client._send_and_wait(CMD_GET_STATE, 1, [], timeout=0.01, quiet=True)
+    assert "a1b2c3d4e5f6" not in caplog.text
+    assert "TX CMD 86: <secret hidden>" in caplog.text
+    assert "TX CMD 210: fafcfdd2" in caplog.text

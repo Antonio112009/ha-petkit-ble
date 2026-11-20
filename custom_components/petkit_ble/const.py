@@ -140,3 +140,9 @@ CONF_DEBUG = "debug"
 # CTW3; when unset it defaults to off for CTW3 and on for the older models,
 # whose protocol notes call it required.
 CONF_SYNC_CLOCK = "sync_clock"
+# Seconds between polls. Pet detection is only sampled at poll time, so a
+# shorter interval catches more short drinks at the cost of holding the
+# fountain's single Bluetooth connection more often.
+CONF_POLL_INTERVAL = "poll_interval"
+MIN_POLL_INTERVAL = 15
+MAX_POLL_INTERVAL = 600
