@@ -87,8 +87,10 @@ def test_real_ctw3_state_and_config_frames():
 
 
 def test_cloud_secret_matched_by_mac_or_id():
-    feeder = SimpleNamespace(id=400000002, mac="aabbccddeeff", secret="1111111111111111")
-    fountain = SimpleNamespace(id=396473027, mac="a4c138aabbcc", secret="a1b2c3d4e5f6")
+    feeder = SimpleNamespace(
+        id=400000002, mac="aabbccddeeff", secret="1111111111111111"
+    )  # gitleaks:allow (dummy value)
+    fountain = SimpleNamespace(id=396473027, mac="a4c138aabbcc", secret="a1b2c3d4e5f6")  # gitleaks:allow (dummy value)
     pet = SimpleNamespace(id=1)
     devices = [pet, feeder, fountain]
     assert normalize_mac("A4:C1:38:AA:BB:CC") == "a4c138aabbcc"
